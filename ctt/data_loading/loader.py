@@ -116,7 +116,7 @@ class ContactDataset(Dataset):
         self.transforms = transforms
         self.preload = preload
         # Prepwork
-        self._preloaded = None
+        self._zf = None
         self._read_data()
         self._set_input_fields_to_slice_mapping()
 
@@ -139,8 +139,8 @@ class ContactDataset(Dataset):
                 with open(self.path, "rb") as f:
                     buffer = io.BytesIO(f.read())
                 buffer.seek(0)
-                self._preloaded = zipfile.ZipFile(buffer)
-                files = self._preloaded.namelist()
+                self._zf = zipfile.ZipFile(buffer)
+                files = self._zf.namelist()
             else:
                 with zipfile.ZipFile(self.path) as zf:
                     files = zipfile.ZipFile.namelist(zf)
@@ -199,17 +199,12 @@ class ContactDataset(Dataset):
                 return pickle.load(f)
         elif self.path.endswith(".zip"):
             # We're working with a zipfile
-            # Check if we have the content preload to RAM
-            if self._preloaded is not None:
-                self._preloaded: zipfile.ZipFile
-                with self._preloaded.open(file_name, "r") as f:
-                    return pickle.load(f)
-            else:
-                # Read zip archive from path, and then read content
-                # from archive
-                with zipfile.ZipFile(self.path) as zf:
-                    with zf.open(file_name, "r") as f:
-                        return pickle.load(f)
+            # Open the zip file from path if it's not already done
+            # Note: the zip file could be a preloaded buffer
+            if self._zf is None:
+                self._zf = zipfile.ZipFile(self.path)
+
+            return pickle.loads(self._zf.read(file_name))
 
     def get(self, human_idx: int, day_idx: int, human_day_info: dict = None) -> Dict:
         """
@@ -542,8 +537,8 @@ class ContactDataset(Dataset):
         return tensor[..., slice_]
 
     def __del__(self):
-        if self._preloaded is not None:
-            self._preloaded.close()
+        if self._zf is not None:
+            self._zf.close()
 
 
 class ContactPreprocessor(ContactDataset):
